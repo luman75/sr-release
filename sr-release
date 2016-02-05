@@ -1,0 +1,546 @@
+#!/bin/bash
+
+CHANGE_LOG="CHANGELOG.md"
+CURRENT_TAG_MARKER="New Version Tag do not change this line"
+DEBUG_FILE="/tmp/sr-release.log"
+TRUE=0
+FALSE=1
+
+# this is a library function which returns value by the echoing it
+myreturn(){
+    local  myresult=$1
+    local  __resultvar=$2
+
+    if [[ "$__resultvar" ]]; then
+        eval $__resultvar="'$myresult'"
+    else
+        echo "$myresult"
+    fi
+}
+
+debug() {
+    if [ ! -z $DEBUG_FILE ]; then
+        echo "$@" >> $DEBUG_FILE
+    fi
+}
+
+message(){
+    echo $@
+    debug $@
+}
+
+
+sed_in_place(){
+    debug "sed_in_place: $@"
+    local filename=$1
+    local sedexpr=$2
+    local tempoutfile=$(mktemp -t srrelease)
+    exit_on_error $? "Can't create a temp file."
+
+    # this is ugly code but there are problems with sed in place on some OSes
+    # first we are replaceing hashes
+    cat "$filename" | sed "$sedexpr" >  $tempoutfile
+    exit_on_error $? "sed_in_place: Error processing sed file $filename. Temporary results in $tempoutfile"
+    cat $tempoutfile > $filename
+    exit_on_error $? "Can't read from temp file $tempoutfile or write to $filename"
+    rm $tempoutfile
+    exit_on_error $? "Can't remove temporary file $tempoutfile"
+}
+
+
+# this function replaces all special markdown characters in file
+# @param filename
+replace_special_markdown_characters_in_file(){
+    local filename=$1
+    debug "replace_special_markdown_characters_in_file: $@"
+
+    #  escapeing hashes
+    sed_in_place $filename  's/#/\&#35;/g;'
+}
+
+get_lastest_tag(){
+     local lasttag=`git describe --abbrev=0 --tags`
+     debug "get_lastest_tag: return $lasttag"
+     myreturn "$lasttag"
+}
+
+get_first_tag(){
+     local tag=`git tag --sort=version:refname  | head -1`
+     debug "get_first_tag: return $tag"
+     myreturn "$tag"
+}
+
+# insert contents of file $1 into file $2 at line $3
+insert_at () {
+    insert="$1"
+    into="$2"
+    at="$3"
+    local tempoutfile=$(mktemp -t srrelease)
+    debug "insert_at" $@
+
+    head -n $at "$into" > $tempoutfile
+    ((at++))
+    cat "$insert" >> $tempoutfile
+    tail -n +$at "$into" >> $tempoutfile
+    cat $tempoutfile > $into
+    rm $tempoutfile
+}
+
+find_line_of_changelog_history(){
+    local changelog=$1
+    debug "find_line_of_changelog_history" $@
+    LINEN=$(awk '$0 ~ str{print NR-1 FS b}{b=$0}' str="CHANGELOG" "$changelog")
+    LINEN=$((LINEN + 3))
+    debug "find_line_of_changelog_history:return $LINEN"
+    myreturn "$LINEN"
+}
+
+are_there_any_tags(){
+    local tags
+    debug "are_there_any_tags" $@
+    tags=$(git tag | wc -l)
+    debug "are_there_any_tags: tags=$tags"
+    if [ $tags -ge 1 ]; then
+        debug "are_there_any_tags: return 0"
+        return 0; # true
+    else
+        debug "are_there_any_tags: return 1"
+        return 1; # false
+    fi
+}
+
+# generates a history of tags and put it at the begining of CHANGELOG file
+# @param filename
+# @param projectname
+# @parm skiptotag
+generate_tag_list_history(){
+    local changelog=$1
+    local projectname=$2
+    local skiptotag=$3
+    local tempoutfile=$(mktemp -t srrelease)
+    local filename=$(mktemp -t srrelease)
+
+    debug "generate_tag_list_history" $@
+    local PREV
+    local skipped=1 #false
+    echo >> $tempoutfile
+    git tag --sort=version:refname  | tail -r | while read TAG ; do
+        debug "generate_tag_list_history:loop TAG=$TAG PREV=$PREV"
+        if [ ! -z $PREV ]; then
+            echo "### $PREV" >> $filename
+            echo >> $filename
+
+            PAGER=cat git log --no-merges --format="* %s" $TAG..$PREV > $tempoutfile
+            replace_special_markdown_characters_in_file $tempoutfile
+            cat $tempoutfile >> $filename
+            echo >> $filename
+            echo >> $filename
+        else
+            # this is case for the codes having no tag yet
+            echo "### $CURRENT_TAG_MARKER" >> $filename
+            echo >> $filename
+
+            PAGER=cat git log --no-merges --format="* %s" $TAG.. > $tempoutfile
+            replace_special_markdown_characters_in_file $tempoutfile
+            cat $tempoutfile >> $filename
+            echo >> $filename
+            echo >> $filename
+        fi
+
+        if [ ! -z $skiptotag ]; then
+            if [ $TAG == $skiptotag ]; then
+                debug "generate_tag_list_history:TAG equals skiptotag. Breaking the loop"
+                skipped=0
+                break
+            fi
+        fi
+        PREV=$TAG
+    done
+
+    if are_there_any_tags; then
+        debug "There are tags I'm processing the last part"
+        if [ ! $skipped ]; then
+            TAG=$(get_first_tag)
+            # this is case for the codes commited before the first tag
+            echo "### $TAG" >> $filename
+            echo >> $filename
+            echo >> $filename
+            PAGER=cat git log --no-merges --format="* %s" $TAG > $tempoutfile
+            replace_special_markdown_characters_in_file $tempoutfile
+            cat $tempoutfile >> $filename
+        fi
+    else
+        debug "There are no tags in the repo. I'm processing the commit logs"
+        echo "### $CURRENT_TAG_MARKER" >> $filename
+        echo >> $filename
+        echo >> $filename
+        PAGER=cat git log --no-merges --format="* %s" > $tempoutfile
+        replace_special_markdown_characters_in_file $tempoutfile
+        cat $tempoutfile >> $filename
+    fi
+
+    # now we are merging the results into changelog file
+    local line
+    line=$(find_line_of_changelog_history $changelog)
+    insert_at $filename $changelog $line
+
+    # clearing up temporary files
+    rm $filename
+    exit_on_error $? "Can't remove temporary file $filename"
+
+    rm $tempoutfile
+    exit_on_error $? "Can't remove temporary file $tempoutfile"
+}
+
+# generates the full history of changes in the project
+# @param filename
+# @param projectname
+# @result the function the autogenerated history is stored file name passed as a parameter
+#
+generate_empty_change_log(){
+    local filename=$1
+    local projectname=$2
+
+    debug "generate_empty_change_log" $@
+
+    echo "# Release notes for project $projectname" > $filename
+    echo >> $filename
+    echo >> $filename
+    echo "CHANGELOG" >> $filename
+    echo "---------" >> $filename
+    echo "" >> $filename
+
+
+    echo >> $filename
+    echo >> $filename
+    echo "________" >> $filename
+    echo >> $filename
+    echo "Generated by sr-release. " >> $filename
+
+}
+
+
+check_if_all_commited(){
+    debug "check_if_all_commited" $@
+
+    local no_of_changed_files=$(git status --porcelain | grep -v "$CHANGE_LOG" | wc -l)
+    if [ $no_of_changed_files == 0 ]; then
+        debug "check_if_all_commited: no_of_changed_files=$no_of_changed_files"
+        return 0 # 0 means true
+    else
+        changed_files=$(git status --porcelain | grep -v "$CHANGE_LOG")
+        echo "$changed_files" | head -n 20
+        debug "check_if_all_commited: no_of_changed_files=$no_of_changed_files"
+        return 1 # 1 means false
+    fi
+}
+
+
+check_if_only_uncommited_file_is_changelog(){
+    local no_of_changed_files=$(git status --porcelain | grep -v "$CHANGE_LOG" | wc -l)
+
+    debug "check_if_only_uncommited_file_is_changelog: no_of_changed_files=$no_of_changed_files"
+
+    if [ $no_of_changed_files == 0 ]; then
+        no_of_changed_files=$(git status --porcelain  | wc -l)
+        if [ $no_of_changed_files -ge 1 ]; then
+            debug "check_if_only_uncommited_file_is_changelog: return 0"
+            return 0 # 0 means true
+        fi
+    fi
+
+    debug "check_if_only_uncommited_file_is_changelog: return 1"
+    return 1 # 1 means false
+}
+
+
+check_if_changelog_exist(){
+
+    if [ -f "$CHANGE_LOG" ]; then
+        debug "check_if_changelog_exist: return 0"
+        return 0 #true
+    fi
+
+    debug "check_if_changelog_exist: return 1"
+    return 1 #false
+}
+
+
+prompt_yn_question(){
+    local prompt=$1
+    while true; do
+        read -p "$prompt" yn
+        case $yn in
+            [Yy]* ) return 0; break;;
+            [Nn]* ) return 1;;
+            * ) echo "Please answer yes or no.";;
+        esac
+    done
+
+}
+
+#this function returns project name if there is
+get_project_name(){
+    debug "get_project_name:" $@
+    local var1
+    local var2
+
+    if [ -f "s-config.sh" ]; then
+        uservice_name=$(grep '^\s*USERVICE_NAME=\".*\"\s*$' "s-config.sh")
+        if [ ! -z $uservice_name ]; then
+            var1=$(echo $uservice_name | cut -f1 -d=)
+            var2=$(echo $uservice_name | cut -f2 -d=)
+            var2=${var2:1}
+            len=size=${#var2}
+            var2=${var2:0:len-1}
+            debug "get_project_name: return $var2"
+            myreturn $var2
+        fi
+    else
+        # if there is no config file we return
+        var2=$(basename $(pwd))
+        debug "get_project_name: return $var2"
+        myreturn $(basename $(pwd))
+    fi
+}
+
+
+check_if_tags_already_used(){
+    debug "check_if_tags_already_used $@"
+    local tag=$1
+    local no_tags
+    no_tags=$(git tag | grep "^$tag$" | wc -l)
+    debug "check_if_tags_already_used: number tags=$no_tags"
+
+    if [ $no_tags == 1 ]; then
+       debug "check_if_tags_already_used: returning 0"
+       return 0 # 0 means true
+    fi
+    debug "check_if_tags_already_used: returning 1"
+    return 1 # 1 means false
+}
+
+
+trim() {
+    local orig="$1"
+    local trmd=""
+    while true;
+    do
+        trmd="${orig#[[:space:]]}"
+        trmd="${trmd%[[:space:]]}"
+        test "$trmd" = "$orig" && break
+        orig="$trmd"
+    done
+    printf -- '%s\n' "$trmd"
+}
+
+
+escape_string_for_regexp(){
+    local raw_string=$1
+    debug "escape_string_for_regexp: returning 1"
+
+    quoted_string=${raw_string//\\//\\\\}
+    for c in \[ \] \( \) \. \^ \$ \? \* \+; do
+      quoted_string=${quoted_string//"$c"/"\\$c"}
+    done
+    debug "escape_string_for_regexp: for $raw_string returns: $quoted_string"
+    myreturn "$quoted_string"
+}
+
+
+update_tag_name_in_changelog(){
+    local newtagname=$1
+    local marker=$(escape_string_for_regexp "$CURRENT_TAG_MARKER" )
+    debug "update_tag_name_in_changelog: $newtagname"
+
+    newtagname=$(escape_string_for_regexp "$newtagname")
+    sed_in_place "$CHANGE_LOG" "s/$CURRENT_TAG_MARKER/$newtagname/g;"
+}
+
+update_tag_name_in_package_js(){
+    local newtagname=$1
+    local packagepath=$2
+    debug "update_tag_name_in_package_js: $newtagname"
+
+    newtagname="version: '$newtagname'"
+    sed_in_place "$packagepath" "s/version: '.*'/$newtagname/g;"
+}
+
+
+update_tag_name_in_package_json(){
+    local newtagname=$1
+    local packagepath=$2
+    debug "update_tag_name_in_package_json: $newtagname"
+
+    newtagname="\"version\": \"$newtagname\""
+    sed_in_place "$packagepath" "s/\"version\": \".*\"/$newtagname/g;"
+}
+
+
+
+check_if_package_js(){
+    if [ -f "./package.js" ]; then
+       return $TRUE
+    fi
+
+    return $FALSE
+}
+
+
+check_if_package_json(){
+    if [ -f "./package.json" ]; then
+       return $TRUE
+    fi
+
+    return $FALSE
+}
+
+
+
+git_commit_changelog(){
+    local msg=$1
+    debug "git_commit_changelog: $msg"
+    debug "git_commit_changelog:" $(git add "$CHANGE_LOG")
+    if check_if_package_js; then
+        git commit -m "$msg" "$CHANGE_LOG" "./package.js"
+    else
+        if check_if_package_json; then
+            git commit -m "$msg" "$CHANGE_LOG" "./package.json"
+        else
+            git commit -m "$msg" "$CHANGE_LOG"
+        fi
+    fi
+    exit_on_error $? "Can't commit $CHANGE_LOG file"
+}
+
+# this function takes two parameters:
+# @param exitcode - it's a last operation exit code 0 -succees
+# @param msg - this is optional message to be displayed on error
+exit_on_error(){
+    local exitcode=$1
+    local msg=$2
+
+    if [ $exitcode != 0  ]; then
+        message "Error" $msg
+        exit $exitcode
+    fi
+}
+
+
+git_tag_repo(){
+    local tagname=$1
+    local force=$2
+    local msg=$3
+    local forcetag=""
+    debug "git_tag_repo" $@
+
+    if [ $force == 0 ]; then
+        forcetag=" -f"
+    fi
+
+    debug "git tag $forcetag -m $msg -a $tagname"
+    git tag $forcetag -m "$msg" -a "$tagname"
+    exit_on_error $? "Git tagging failed $tagname"
+}
+
+
+git_push_repo(){
+    local force=$1
+    debug "git_push_repo: " $@
+
+    if [ $force == 0 ]; then
+        forcetag=" -f"
+    fi
+    git config --global push.default simple
+
+    git push origin
+    exit_on_error $? "Pushing changes to the remote repo failed"
+
+    git push --tags $forcetag origin
+    exit_on_error $? "Pushing tags to the remote repo failed"
+}
+
+
+######################################
+### MAIN
+#####################################
+
+if check_if_all_commited; then
+    debug "All files are commited in the current branch.";
+else
+    message "Please commit changes before you can generate changelog"
+    exit 1
+fi
+
+
+if check_if_changelog_exist; then
+    if check_if_only_uncommited_file_is_changelog; then
+        if prompt_yn_question "Have you checked and updated $CHANGE_LOG file? [y/N] "; then
+            message "Starting procedure of new release "
+
+            #get lastests tag
+            lastest_tag=$(get_lastest_tag)
+            message
+            message "The lastest tag is: $lastest_tag"
+
+            read -p "Enter the new tag and press [ENTER] " NEW_TAG
+            NEW_TAG=$(trim ${NEW_TAG})
+            if [ -z $NEW_TAG ]; then
+                exit_on_error 1 "You need to provide a valid tag name"
+            fi
+
+            force=1 # false
+
+            if check_if_tags_already_used "$NEW_TAG"; then
+                message ""
+                message "Provided tag is already in use"
+                if prompt_yn_question "Would you like to force change moving tag $NEW_TAG to the current commit? [y/N] "; then
+                    force=0 #true
+                else
+                    message "Please run the command again and provide new tag name"
+                    exit 1;
+                fi
+            fi
+            message "Updating $CHANGE_LOG by the new tag $NEW_TAG"
+
+            update_tag_name_in_changelog "$NEW_TAG"
+
+            if check_if_package_js; then
+                update_tag_name_in_package_js "$NEW_TAG" "./package.js"
+            fi
+
+            if check_if_package_json; then
+                update_tag_name_in_package_json "$NEW_TAG" "./package.json"
+            fi
+
+            msg="Releasing new version $NEW_TAG"
+
+            git_commit_changelog "$msg"
+
+            git_tag_repo "$NEW_TAG" $force "$msg"
+
+            if prompt_yn_question "Would you like to push the changes to the origin? [y/N] "; then
+                git_push_repo $force # we are forcing changing tags on the remote repo in case we foreced that on the local repo
+            else
+                exit 1;
+            fi
+
+            exit 0
+        else
+            message "Please update the file before you will go with the change log generation"
+            exit 1
+        fi
+    else
+        message "Changelog exist. File '$CHANGE_LOG' will be updated"
+        lastest_tag=$(get_lastest_tag)
+        generate_tag_list_history "$CHANGE_LOG" "$project_name" "$lastest_tag"
+    fi
+else
+    message "Changelog doesn't exist. It will be generated '$CHANGE_LOG'"
+    project_name=$(get_project_name)
+    message "I'm generating changelog for project: $project_name"
+    message "...."
+    generate_empty_change_log "$CHANGE_LOG" "$project_name"
+    generate_tag_list_history "$CHANGE_LOG" "$project_name"
+    message "Generation succeeded. Please check file $CHANGE_LOG and save your changes there and run sr-release again."
+fi
