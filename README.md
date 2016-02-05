@@ -20,7 +20,18 @@ In the example above sr-released detected that there are non-commited files and 
 
 
 ## Generating CHANGELOG.md
-If all files are commited we run the tool again form the main directory of the local project copy. 
+If all files are committed we run the tool again form the main directory of the local project copy. 
+
+For the first time it will look like this
+```
+Changelog doesn't exist. It will be generated 'CHANGELOG.md'
+I'm generating changelog for project: sr-release
+....
+Generation succeeded. Please check file CHANGELOG.md and save your changes there and run sr-release again.
+
+```
+
+on the next attempts it will look like this:
 
 ```
 $ sr-release
