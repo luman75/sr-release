@@ -1,5 +1,11 @@
 #!/bin/bash
 
+#
+#  Author: Lukasz Dutka
+#  LICENSE: MIT
+#
+#
+
 CHANGE_LOG="CHANGELOG.md"
 CURRENT_TAG_MARKER="New Version Tag do not change this line"
 DEBUG_FILE="/tmp/sr-release.log"
