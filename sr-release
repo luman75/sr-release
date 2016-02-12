@@ -40,7 +40,7 @@ sed_in_place(){
     debug "sed_in_place: $@"
     local filename=$1
     local sedexpr=$2
-    local tempoutfile=$(mktemp -t srrelease)
+    local tempoutfile=$(mktemp -t srreleaseXXX)
     exit_on_error $? "Can't create a temp file."
 
     # this is ugly code but there are problems with sed in place on some OSes
@@ -81,7 +81,7 @@ insert_at () {
     insert="$1"
     into="$2"
     at="$3"
-    local tempoutfile=$(mktemp -t srrelease)
+    local tempoutfile=$(mktemp -t srreleaseXXX)
     debug "insert_at" $@
 
     head -n $at "$into" > $tempoutfile
@@ -123,8 +123,8 @@ generate_tag_list_history(){
     local changelog=$1
     local projectname=$2
     local skiptotag=$3
-    local tempoutfile=$(mktemp -t srrelease)
-    local filename=$(mktemp -t srrelease)
+    local tempoutfile=$(mktemp -t srreleaseXXX)
+    local filename=$(mktemp -t srreleaseXXX)
 
     debug "generate_tag_list_history" $@
     local PREV
