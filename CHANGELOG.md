@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 1.2.2
+
+* Readme improvments.
+
+
 ### 1.2.1
 
 * mktemp compatibile with linux
