@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 1.2.1
+
+* mktemp compatibile with linux
+
+
 ### 1.2.0
 
 * Tool ready to be installed as an npm
