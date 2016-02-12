@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 1.2.0
+
+* Tool ready to be installed as an npm
+
+
 ### 1.0.0
 
 
