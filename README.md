@@ -3,6 +3,11 @@
 Tool for easy software release management. It generates CHANGELOG.md file based on git commits and creates git tags.
  In the process the tool is pushing the changes to the remote origin. 
  
+# Install 
+ 
+```
+npm install -g sr-release
+```
 
 # Typical usage 
 
