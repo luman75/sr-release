@@ -1,7 +1,7 @@
 # sr-release
 
 Tool for easy software release management. It generates CHANGELOG.md file based on git commits and creates git tags.
- In the process the tool is pushing the changes to the remote origin. 
+ sr-releas pushes changes done by process of software releasing to the remote git server. 
  
 # Install 
  
