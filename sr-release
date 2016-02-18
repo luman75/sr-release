@@ -130,7 +130,7 @@ generate_tag_list_history(){
     local PREV
     local skipped=1 #false
     echo >> $tempoutfile
-    git tag --sort=version:refname  | tail -r | while read TAG ; do
+    git tag --sort=version:refname  | sed '1!G;h;$!d'  | while read TAG ; do
         debug "generate_tag_list_history:loop TAG=$TAG PREV=$PREV"
         if [ ! -z $PREV ]; then
             echo "### $PREV" >> $filename
