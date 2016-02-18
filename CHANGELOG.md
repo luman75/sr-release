@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 1.3.0
+
+* replaced tail -r with a POSIX-compliant sed
+
+
 ### 1.2.2
 
 * Readme improvments.
