@@ -51,6 +51,7 @@ sed_in_place(){
     exit_on_error $? "Can't read from temp file $tempoutfile or write to $filename"
     rm $tempoutfile
     exit_on_error $? "Can't remove temporary file $tempoutfile"
+    touch $filename
 }
 
 
@@ -406,16 +407,22 @@ check_if_package_json(){
 git_commit_changelog(){
     local msg=$1
     debug "git_commit_changelog: $msg"
-    debug "git_commit_changelog:" $(git add "$CHANGE_LOG")
+    
+    message "Commiting $CHANGE_LOG"
+    git add "$CHANGE_LOG"
+
     if check_if_package_js; then
-        git commit -m "$msg" "$CHANGE_LOG" "./package.js"
-    else
-        if check_if_package_json; then
-            git commit -m "$msg" "$CHANGE_LOG" "./package.json"
-        else
-            git commit -m "$msg" "$CHANGE_LOG"
-        fi
+        message "Commiting package.js"
+        git add "./package.js"
+    fi 
+
+    if check_if_package_json; then
+        message "Commiting package.json"
+        git add "./package.json"
     fi
+
+    echo "Commiting $CHANGE_LOG"
+    git commit -m "$msg"
     exit_on_error $? "Can't commit $CHANGE_LOG file"
 }
 
@@ -471,6 +478,8 @@ git_push_repo(){
 ### MAIN
 #####################################
 
+echo "Release procedure started"
+
 if check_if_all_commited; then
     debug "All files are commited in the current branch.";
 else
@@ -518,7 +527,7 @@ if check_if_changelog_exist; then
             if check_if_package_json; then
                 update_tag_name_in_package_json "$NEW_TAG" "./package.json"
             fi
-
+            sleep 2
             msg="Releasing new version $NEW_TAG"
 
             git_commit_changelog "$msg"
