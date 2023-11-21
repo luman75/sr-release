@@ -4,6 +4,11 @@
 CHANGELOG
 ---------
 
+### 1.4.0
+
+* Fixes missing packages.json amd packages.js in the final release commit
+
+
 ### 1.3.0
 
 * replaced tail -r with a POSIX-compliant sed
